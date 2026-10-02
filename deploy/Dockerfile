@@ -13,8 +13,10 @@ RUN pip install --no-cache-dir --require-hashes -r requirements-dev.txt \
     && groupadd --gid 10001 webmonitor \
     && useradd --uid 10001 --gid 10001 --create-home webmonitor \
     && chmod -R a+rX /opt/playwright
+COPY scripts/dev_entrypoint.py /usr/local/bin/dev_entrypoint.py
 
 USER webmonitor
 WORKDIR /workspace
+ENTRYPOINT ["python", "/usr/local/bin/dev_entrypoint.py"]
 # Interactive development runtime, not an application server.
 CMD ["python"]

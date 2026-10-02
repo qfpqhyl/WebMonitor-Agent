@@ -1,0 +1,29 @@
+# Exact fixture-only exception; never enable this overlay for normal targets.
+services:
+  fixture:
+    image: webmonitor-fixture:local
+    build: {context: ., dockerfile: deploy/fixture.Dockerfile}
+    user: "10001:10001"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=16m,uid=10001,gid=10001,mode=1777"]
+    environment:
+      SMOKE_TOKEN: ${SMOKE_TOKEN:?Export a random SMOKE_TOKEN with at least 32 characters}
+    networks: [control]
+    restart: unless-stopped
+  egress:
+    volumes:
+      - ./deploy/egress/squid.smoke.conf:/etc/squid/squid.conf:ro
+      - ./deploy/egress/unbound.smoke.conf:/etc/unbound/webmonitor.conf:ro
+    depends_on:
+      fixture: {condition: service_healthy}
+  api:
+    environment: {SMOKE_FIXTURE_ORIGIN: "http://fixture:8000"}
+  agent-worker:
+    environment: {SMOKE_FIXTURE_ORIGIN: "http://fixture:8000"}
+  http-worker:
+    environment: {SMOKE_FIXTURE_ORIGIN: "http://fixture:8000"}
+  browser-worker:
+    environment: {SMOKE_FIXTURE_ORIGIN: "http://fixture:8000"}

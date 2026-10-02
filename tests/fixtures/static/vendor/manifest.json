@@ -1,0 +1,21 @@
+{
+  "distribution": "Official npm registry tarballs; SHA-512 integrity verified before extraction",
+  "react_version_note": "React 18.3.1 is a stable official release with standalone browser UMD bundles; later React releases do not distribute UMD bundles.",
+  "assets": [
+    {
+      "package": "react", "version": "18.3.1", "file": "react-18.3.1.min.js",
+      "source": "https://registry.npmjs.org/react/-/react-18.3.1.tgz",
+      "integrity": "sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ=="
+    },
+    {
+      "package": "react-dom", "version": "18.3.1", "file": "react-dom-18.3.1.min.js",
+      "source": "https://registry.npmjs.org/react-dom/-/react-dom-18.3.1.tgz",
+      "integrity": "sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw=="
+    },
+    {
+      "package": "vue", "version": "3.5.43", "file": "vue-3.5.43.min.js",
+      "source": "https://registry.npmjs.org/vue/-/vue-3.5.43.tgz",
+      "integrity": "sha512-o5qZoksdnjIKvW1srZ3ab7pcDNYAerBjRe54D0LBLfRdCYFrSgBHVXokMas35czQc0//lmx4/tuY4ZNQ+Rf2Ng=="
+    }
+  ]
+}

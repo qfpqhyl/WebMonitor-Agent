@@ -1,0 +1,6 @@
+body { font: 18px/1.5 system-ui, sans-serif; color: #18332e; background: #faf9f5; margin: 0; }
+main { max-width: 48rem; margin: auto; padding: 1.5rem; }
+.inventory-item, .replacement-item { display: flex; flex-wrap: wrap; gap: 1rem; padding: .75rem; }
+button { font: inherit; padding: .6rem 1rem; cursor: pointer; }
+button:focus-visible { outline: 3px solid #00695c; outline-offset: 3px; }
+#current-price, #replacement-price { font-weight: 700; }

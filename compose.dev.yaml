@@ -1,0 +1,19 @@
+# Supplements root Compose; browser-worker never receives a host source mount.
+services:
+  postgres:
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5433}:5432"]
+  api:
+    environment: {PYTHONPATH: /workspace/src}
+    volumes: ["./src:/workspace/src:ro"]
+  agent-worker:
+    environment: {PYTHONPATH: /workspace/src}
+    volumes: ["./src:/workspace/src:ro"]
+  scheduler:
+    environment: {PYTHONPATH: /workspace/src}
+    volumes: ["./src:/workspace/src:ro"]
+  http-worker:
+    environment: {PYTHONPATH: /workspace/src}
+    volumes: ["./src:/workspace/src:ro"]
+  mailer:
+    environment: {PYTHONPATH: /workspace/src}
+    volumes: ["./src:/workspace/src:ro"]

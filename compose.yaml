@@ -1,44 +1,299 @@
 name: webmonitor-agent
 
+x-runtime: &runtime
+  user: "10001:10001"
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:rw,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=1777"]
+  restart: unless-stopped
+
+x-backend-build: &backend-build
+  context: .
+  dockerfile: deploy/backend.Dockerfile
+  additional_contexts:
+    minio: service:s3
+
+x-app-env: &app-env
+  PGHOST: postgres
+  PGPORT: "5432"
+  PGDATABASE: webmonitor
+  APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+  DEVELOPMENT_MODE: "true"
+  CONTAINER_RUNTIME: "true"
+  SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+  S3_ENDPOINT_URL: http://s3:9000
+  S3_BUCKET: ${S3_BUCKET:-webmonitor-evidence}
+  EGRESS_PROXY_URL: http://egress:3128
+
+x-started: &started
+  postgres: {condition: service_healthy}
+  s3: {condition: service_healthy}
+  init-db: {condition: service_completed_successfully}
+
 services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: webmonitor
+      POSTGRES_USER: postgres
       POSTGRES_DB: webmonitor
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    ports: ["127.0.0.1:${POSTGRES_PORT:-5433}:5432"]
-    volumes: [postgres-data:/var/lib/postgresql/data]
+    tmpfs: ["/var/lib/postgresql/data:rw,nosuid,nodev,size=512m,mode=0700"]
+    networks: [control]
     healthcheck:
-      test: [CMD-SHELL, "pg_isready -U webmonitor -d webmonitor"]
+      test: [CMD-SHELL, "pg_isready -U postgres -d webmonitor"]
       interval: 3s
       timeout: 3s
       retries: 30
     restart: unless-stopped
 
+  s3:
+    <<: *runtime
+    image: webmonitor-minio:local
+    build: {context: ., dockerfile: deploy/minio.Dockerfile}
+    command: [server, /data]
+    environment:
+      MINIO_ROOT_USER: ${S3_ROOT_USER:-webmonitor-admin}
+      MINIO_ROOT_PASSWORD: ${S3_ROOT_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=1777
+      - /data:rw,nosuid,nodev,size=512m,uid=10001,gid=10001,mode=0700
+    networks: [control]
+    healthcheck:
+      test: [CMD, bash, -ec, 'exec 3<>/dev/tcp/127.0.0.1/9000; printf "GET /minio/health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3; read -r status <&3; [[ "$$status" == *" 200 "* ]]']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  init-db:
+    <<: *runtime
+    image: webmonitor-backend:local
+    build: *backend-build
+    command: [init-db]
+    restart: "no"
+    environment:
+      <<: *app-env
+      PGUSER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      BOOTSTRAP_RUNTIME: "true"
+      MINIO_ROOT_USER: ${S3_ROOT_USER:-webmonitor-admin}
+      MINIO_ROOT_PASSWORD: ${S3_ROOT_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
+      SECRET_FILE: /run/webmonitor/secrets/signing.key
+    volumes:
+      - db-api:/run/webmonitor/db/api
+      - db-agent:/run/webmonitor/db/agent
+      - db-scheduler:/run/webmonitor/db/scheduler
+      - db-collector:/run/webmonitor/db/collector
+      - db-mailer:/run/webmonitor/db/mailer
+      - evidence-credentials:/run/webmonitor/evidence
+      - signing-key:/run/webmonitor/secrets
+    networks: [control]
+    depends_on:
+      postgres: {condition: service_healthy}
+      s3: {condition: service_healthy}
+
+  api:
+    <<: *runtime
+    image: webmonitor-backend:local
+    build: *backend-build
+    command: [api]
+    environment:
+      <<: *app-env
+      PGCREDENTIALS_FILE: /run/webmonitor/db/api/credentials.json
+      S3_CREDENTIALS_FILE: /run/webmonitor/evidence/credentials.json
+      SECRET_FILE: /run/webmonitor/secrets/signing.key
+      REQUIRE_RUNTIME_BOOTSTRAP: "true"
+      REGISTRATION_ALLOWED_EMAILS: ${REGISTRATION_ALLOWED_EMAILS:-}
+      TRUSTED_PROXY_IP: 172.30.80.10
+    volumes:
+      - db-api:/run/webmonitor/db/api:ro
+      - evidence-credentials:/run/webmonitor/evidence:ro
+      - signing-key:/run/webmonitor/secrets:ro
+    networks: [control, frontend, trusted]
+    depends_on: *started
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  agent-worker:
+    <<: *runtime
+    image: webmonitor-backend:local
+    build: *backend-build
+    command: [agent-worker]
+    environment:
+      <<: *app-env
+      PGCREDENTIALS_FILE: /run/webmonitor/db/agent/credentials.json
+      SECRET_FILE: /run/webmonitor/secrets/signing.key
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_CONTAINER_BASE_URL: ${OPENAI_CONTAINER_BASE_URL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_AGENTS_DISABLE_TRACING: "1"
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - db-agent:/run/webmonitor/db/agent:ro
+      - signing-key:/run/webmonitor/secrets:ro
+    networks: [control, trusted]
+    depends_on: *started
+
+  scheduler:
+    <<: *runtime
+    image: webmonitor-backend:local
+    build: *backend-build
+    command: [scheduler]
+    environment:
+      <<: *app-env
+      PGCREDENTIALS_FILE: /run/webmonitor/db/scheduler/credentials.json
+    volumes: ["db-scheduler:/run/webmonitor/db/scheduler:ro"]
+    networks: [control]
+    depends_on: *started
+
+  http-worker:
+    <<: *runtime
+    image: webmonitor-backend:local
+    build: *backend-build
+    command: [http-worker]
+    mem_limit: 512m
+    environment:
+      <<: *app-env
+      PGCREDENTIALS_FILE: /run/webmonitor/db/collector/credentials.json
+      S3_CREDENTIALS_FILE: /run/webmonitor/evidence/credentials.json
+    volumes:
+      - db-collector:/run/webmonitor/db/collector:ro
+      - evidence-credentials:/run/webmonitor/evidence:ro
+    networks: [control]
+    depends_on:
+      <<: *started
+      egress: {condition: service_started}
+
+  browser-worker:
+    <<: *runtime
+    image: webmonitor-browser:local
+    build: {context: ., dockerfile: deploy/browser.Dockerfile}
+    command: [browser-worker]
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 256
+    shm_size: 1g
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./deploy/browser-seccomp.json
+    environment:
+      <<: *app-env
+      PGCREDENTIALS_FILE: /run/webmonitor/db/collector/credentials.json
+      S3_CREDENTIALS_FILE: /run/webmonitor/evidence/credentials.json
+    volumes:
+      - db-collector:/run/webmonitor/db/collector:ro
+      - evidence-credentials:/run/webmonitor/evidence:ro
+    networks: [control]
+    depends_on:
+      <<: *started
+      egress: {condition: service_started}
+
+  mailer:
+    <<: *runtime
+    image: webmonitor-backend:local
+    build: *backend-build
+    command: [mailer]
+    environment:
+      <<: *app-env
+      PGCREDENTIALS_FILE: /run/webmonitor/db/mailer/credentials.json
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-}
+    volumes: ["db-mailer:/run/webmonitor/db/mailer:ro"]
+    networks: [control, trusted]
+    depends_on: *started
+
+  egress:
+    <<: *runtime
+    image: webmonitor-egress:local
+    build: {context: ., dockerfile: deploy/egress.Dockerfile}
+    sysctls: {net.ipv4.ip_unprivileged_port_start: "0"}
+    networks: [control, outbound]
+
+  web:
+    <<: *runtime
+    image: webmonitor-web:local
+    build: {context: ./web, dockerfile: ../deploy/web.Dockerfile}
+    networks: [frontend]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  proxy:
+    <<: *runtime
+    image: nginx:1.28-alpine
+    user: "101:101"
+    entrypoint: [nginx, -g, "daemon off;"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=32m,uid=101,gid=101,mode=1777"]
+    ports: ["127.0.0.1:${WEBMONITOR_HTTP_PORT:-8080}:8080"]
+    volumes: ["./deploy/proxy/nginx.conf:/etc/nginx/nginx.conf:ro"]
+    networks:
+      frontend:
+        ipv4_address: 172.30.80.10
+      edge: {}
+    depends_on:
+      api: {condition: service_healthy}
+      web: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/api/v1/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
   dev:
     profiles: [dev]
     image: ${WEBMONITOR_DEV_IMAGE:-webmonitor-agent-dev:local}
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile
+    build: {context: ., dockerfile: deploy/Dockerfile}
     user: "10001:10001"
     init: true
     stdin_open: true
     tty: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    shm_size: 1gb
+    shm_size: 1g
+    working_dir: /workspace
     environment:
-      PGHOST: postgres
-      PGPORT: "5432"
-      PGDATABASE: webmonitor
-      PGUSER: webmonitor
+      <<: *app-env
+      PYTHONPATH: /workspace/src
+      PGUSER: postgres
       PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes: [".:/workspace"]
+    networks: [control, trusted]
     depends_on:
       postgres: {condition: service_healthy}
 
+networks:
+  control:
+    internal: true
+  frontend:
+    internal: true
+    ipam:
+      config: [{subnet: 172.30.80.0/24}]
+  trusted: {}
+  outbound: {}
+  edge: {}
+
 volumes:
+  # Historical volume retained, deliberately unused by this disposable deployment.
   postgres-data:
+  db-api:
+  db-agent:
+  db-scheduler:
+  db-collector:
+  db-mailer:
+  evidence-credentials:
+  signing-key:

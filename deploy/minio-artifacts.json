@@ -1,0 +1,34 @@
+{
+  "checked_at": "2026-10-02",
+  "minio": {
+    "release": "RELEASE.2025-04-22T22-12-26Z",
+    "source": "https://github.com/minio/minio/releases/expanded_assets/RELEASE.2025-04-22T22-12-26Z",
+    "linux-amd64": {
+      "url": "https://github.com/minio/minio/releases/download/RELEASE.2025-04-22T22-12-26Z/minio.linux-amd64.RELEASE.2025-04-22T22-12-26Z",
+      "sha256": "53e2a2cb16c5366ea6fbbc479c19ddb4c6a0948273e752f740fb1fbf27bb817c"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/minio/minio/releases/download/RELEASE.2025-04-22T22-12-26Z/minio.linux-arm64.RELEASE.2025-04-22T22-12-26Z",
+      "sha256": "6c2f3142c94240206123177f4ba1e360daa5d1e0a4962e90757ef4f92c3ab57c"
+    }
+  },
+  "mc": {
+    "release": "RELEASE.2025-04-16T18-13-26Z",
+    "source": "https://github.com/minio/mc/releases/expanded_assets/RELEASE.2025-04-16T18-13-26Z",
+    "linux-amd64": {
+      "url": "https://github.com/minio/mc/releases/download/RELEASE.2025-04-16T18-13-26Z/mc.linux-amd64.RELEASE.2025-04-16T18-13-26Z",
+      "sha256": "ac90da87a35641be5a0ac75d49de5161ddb47d629b5ba01261b0ae9e00aea15f"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/minio/mc/releases/download/RELEASE.2025-04-16T18-13-26Z/mc.linux-arm64.RELEASE.2025-04-16T18-13-26Z",
+      "sha256": "61bb88e7435919834478ddd4d405a6de6d2c227079da5e8ee9655147398819a0"
+    }
+  },
+  "base": {
+    "image": "debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251",
+    "source": "https://hub.docker.com/v2/repositories/library/debian/tags/bookworm-slim",
+    "apt_snapshot": "http://snapshot.debian.org/archive/debian/20260920T000000Z",
+    "apt_authentication": "Debian signed Release metadata; HTTP bootstrap avoids requiring CA certificates before installation"
+  },
+  "verification": "SHA256 values are the binary digests published by GitHub on the official expanded release asset pages, independently confirmed by reading each binary URL plus .sha256sum. These are not the digests of the .sha256sum files. Docker build checks pinned values and fails closed. GitHub API returned HTTP 403; release HTML asset metadata and checksum sidecars were available. No binaries have been downloaded or run during preparation."
+}
