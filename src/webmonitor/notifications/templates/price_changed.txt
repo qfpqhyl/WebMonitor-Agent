@@ -1,0 +1,30 @@
+WebMonitor — 价格变化
+
+监控：{{ monitor.name }}
+监控页面：{{ monitor.url }}
+检测时间（UTC）：{{ event.detected_at }}
+
+监控发现价格变化。下方对比以上一次成功采集为参考；当前价格来自本次成功采集。
+
+变化 / 状态摘要：
+{{ change.summary }}
+
+当前价格：
+{{ fields.current_price | tojson(indent=2) }}
+
+之前：
+{{ change.before | tojson(indent=2) }}
+
+之后：
+{{ change.after | tojson(indent=2) }}
+
+采集字段：
+{{ fields | tojson(indent=2) }}
+{% if evidence_url %}
+查看受权限保护的采集证据：{{ evidence_url }}
+证据需要登录，并且必须具有当前工作区的访问权限。
+{% endif %}
+
+监控 ID：{{ monitor.id }}
+事件 ID：{{ event.id }}
+事件类型：{{ event.type }}

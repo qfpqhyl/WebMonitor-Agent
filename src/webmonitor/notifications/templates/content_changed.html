@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>内容变化 · {{ monitor.name }}</title>
+</head>
+<body style="margin:0;padding:24px;background:#faf8f3;color:#172723;font-family:Arial,'Microsoft YaHei',sans-serif;line-height:1.6">
+  <main style="max-width:680px;margin:0 auto;padding:24px;background:#ffffff;border:1px solid #dce5df;border-radius:12px">
+    <p style="margin:0;color:#35675b;font-size:14px">WebMonitor</p>
+    <h1 style="font-size:24px;margin:8px 0 16px">内容变化：{{ monitor.name }}</h1>
+    <p>监控发现符合规则的内容变化。前后结果以上一次成功采集与本次成功采集为准。</p>
+    <p><strong>检测时间（UTC）：</strong>{{ event.detected_at }}</p>
+    <p><strong>监控页面：</strong><a href="{{ monitor.url }}" style="color:#286653">{{ monitor.url }}</a></p>
+    <h2 style="font-size:18px;margin:24px 0 8px">变化 / 状态摘要</h2>
+    <p style="white-space:pre-wrap;overflow-wrap:anywhere">{{ change.summary }}</p>
+
+    <h2 style="font-size:18px;margin:24px 0 8px">之前</h2>
+    <pre style="white-space:pre-wrap;overflow-wrap:anywhere;padding:16px;background:#f2f7f5">{{ change.before | tojson(indent=2) }}</pre>
+    <h2 style="font-size:18px;margin:24px 0 8px">之后</h2>
+    <pre style="white-space:pre-wrap;overflow-wrap:anywhere;padding:16px;background:#f2f7f5">{{ change.after | tojson(indent=2) }}</pre>
+    <h2 style="font-size:18px;margin:24px 0 8px">采集字段</h2>
+    <pre style="white-space:pre-wrap;overflow-wrap:anywhere;padding:16px;background:#f2f7f5">{{ fields | tojson(indent=2) }}</pre>
+    {% if evidence_url %}
+    <p><a href="{{ evidence_url }}" style="color:#286653">查看受权限保护的采集证据</a></p>
+    <p style="font-size:13px;color:#53665e">证据需要登录，并且必须具有当前工作区的访问权限。</p>
+    {% endif %}
+    <hr style="border:0;border-top:1px solid #dce5df;margin:24px 0">
+    <p style="font-size:12px;color:#53665e;overflow-wrap:anywhere">监控 ID：{{ monitor.id }}<br>事件 ID：{{ event.id }}<br>事件类型：{{ event.type }}</p>
+  </main>
+</body>
+</html>
