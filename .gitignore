@@ -225,3 +225,8 @@ __marimo__/
 .DS_Store
 node_modules/
 .next/
+*.tsbuildinfo
+!/web/src/lib/
+!/web/src/lib/**
+/.webmonitor-secrets/
+/.smoke-artifacts/
