@@ -1,0 +1,4 @@
+**
+!requirements-dev.txt
+!deploy/
+!deploy/Dockerfile

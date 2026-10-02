@@ -149,6 +149,8 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -216,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+/development-plan/
+/reference/
+
+# Local OS and frontend artifacts
+.DS_Store
+node_modules/
+.next/

@@ -1,0 +1,31 @@
+[project]
+name = "webmonitor-agent"
+version = "0.1.0"
+description = "AI-driven web monitoring development environment"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.110,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "pydantic>=2,<3",
+  "pydantic-settings>=2,<3",
+  "httpx>=0.27,<1",
+  "sqlalchemy[asyncio]>=2,<3",
+  "alembic>=1,<2",
+  "asyncpg>=0.29,<1",
+  "playwright>=1.49,<2",
+  "boto3>=1,<2",
+  "openai>=3,<4",
+  "openai-agents==0.22.3",
+  "mcp==2.2.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "pytest-cov>=6,<8", "ruff>=0.9,<1", "mypy>=1,<2"]
+
+# No installable application or CLI exists yet.
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100

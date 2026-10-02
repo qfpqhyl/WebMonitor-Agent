@@ -1,0 +1,44 @@
+name: webmonitor-agent
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: webmonitor
+      POSTGRES_DB: webmonitor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5433}:5432"]
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U webmonitor -d webmonitor"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  dev:
+    profiles: [dev]
+    image: ${WEBMONITOR_DEV_IMAGE:-webmonitor-agent-dev:local}
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    user: "10001:10001"
+    init: true
+    stdin_open: true
+    tty: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    shm_size: 1gb
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: webmonitor
+      PGUSER: webmonitor
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes: [".:/workspace"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+volumes:
+  postgres-data:
