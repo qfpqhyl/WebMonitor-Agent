@@ -29,8 +29,12 @@ def main() -> None:
                     forwarded_allow_ips=trusted_proxy or "", access_log=False)
     elif args.command == "init-db":
         from webmonitor.db.initialize import initialize_database
+        from webmonitor.api.errors import DomainError
         try:
             asyncio.run(initialize_database())
+        except DomainError as exc:
+            print(f"Initialization failed: {exc.code}", file=sys.stderr)
+            raise SystemExit(1) from None
         except Exception as exc:
             print(f"Initialization failed ({type(exc).__name__}); no automatic migration performed", file=sys.stderr)
             raise SystemExit(1) from None

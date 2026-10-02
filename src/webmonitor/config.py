@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     pgcredentials_file: Path | None = None
     bootstrap_runtime: bool = False
     require_runtime_bootstrap: bool = False
+    admin_email: str = ""
+    admin_password: SecretStr = SecretStr("")
     trusted_proxy_ip: str | None = None
     app_origin: str = "http://localhost:8080"
     session_ttl_hours: int = 168

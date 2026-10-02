@@ -2,10 +2,10 @@
 
 Default: real Agent analysis/extraction/email previews only, never confirmation.
 --send-mail: sends MULTIPLE real change/failure/recovery emails ONLY to MAIL_TEST_TO.
-Requires a running root Compose + smoke overlay, an existing admin, and host
-Python httpx/python-dotenv/Playwright with Chromium installed. Install the browser
-with `python -m playwright install chromium` if needed. No SMTP credentials are
-used by this script. Screenshots contain workspace data; keep them private.
+Run through the smoke-runner Docker profile with root Compose + smoke overlay
+and an existing admin. The image provides Python, Chromium and Docker Compose.
+This script does not use SMTP credentials. Screenshots contain workspace data;
+keep them private. The trusted runner's Docker socket grants administrator access.
 """
 from __future__ import annotations
 
@@ -372,7 +372,7 @@ asyncio.run(main())
             try:
                 browser = await playwright.chromium.launch(headless=True)
             except Exception:
-                raise AcceptanceFailure("Host Chromium unavailable; run python -m playwright install chromium. No UI validation was skipped.") from None
+                raise AcceptanceFailure("Runner Chromium unavailable; rebuild the dev/smoke-runner image. No UI validation was skipped.") from None
             try:
                 context = await browser.new_context()
                 page = await context.new_page()

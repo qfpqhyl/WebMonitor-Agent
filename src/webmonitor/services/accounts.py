@@ -50,25 +50,52 @@ def new_session(session, principal: Principal) -> str:
     return token
 
 
-async def admin_create(session, *, email: str, password: str, display_name: str | None = None) -> Principal:
+def bootstrap_admin_credentials(settings) -> tuple[str, str] | None:
+    """Validate init-db input before any database or signing-secret changes."""
+    email = settings.admin_email.strip()
+    password = settings.admin_password.get_secret_value()
+    if not email and not password and not settings.bootstrap_runtime:
+        return None
+    if not email or not password:
+        raise DomainError("admin_credentials_required", 422)
     email = normalize_email(email)
     validate_password(password)
+    return email, password
+
+
+async def create_admin_in_transaction(session, *, workspace: Workspace, email: str,
+                                      password: str, display_name: str | None = None,
+                                      allow_existing: bool = False) -> Principal:
+    """Create an admin in the caller's transaction; bootstrap never resets/promotes."""
+    email = normalize_email(email)
+    validate_password(password)
+    user = await session.scalar(select(User).where(User.email == email).with_for_update())
+    if user is not None:
+        membership = await session.scalar(select(Membership).where(
+            Membership.workspace_id == workspace.id, Membership.user_id == user.id).with_for_update())
+        if allow_existing and user.active and membership is not None and membership.active and membership.role == "admin":
+            return principal_for(user, membership)
+        raise DomainError("admin_bootstrap_conflict" if allow_existing else "account_exists", 409)
     password_hash = await asyncio.to_thread(_hasher.hash, password)
+    user = User(email=email, display_name=display_name or email, password_hash=password_hash)
+    session.add(user)
+    await session.flush()
+    membership = Membership(workspace_id=workspace.id, user_id=user.id, role="admin")
+    session.add(membership)
+    await session.flush()
+    session.add(AuditLog(workspace_id=workspace.id, actor_user_id=user.id, action="admin.created", resource_type="user", resource_id=user.id))
+    await session.flush()
+    return principal_for(user, membership)
+
+
+async def admin_create(session, *, email: str, password: str, display_name: str | None = None) -> Principal:
     try:
         async with session.begin():
             workspace = await session.scalar(select(Workspace).where(Workspace.slug == "local").with_for_update())
             if workspace is None:
                 raise DomainError("not_initialized", 503)
-            if await session.scalar(select(User.id).where(User.email == email)):
-                raise DomainError("account_exists", 409)
-            user = User(email=email, display_name=display_name or email, password_hash=password_hash)
-            session.add(user)
-            await session.flush()
-            membership = Membership(workspace_id=workspace.id, user_id=user.id, role="admin")
-            session.add(membership)
-            await session.flush()
-            session.add(AuditLog(workspace_id=workspace.id, actor_user_id=user.id, action="admin.created", resource_type="user", resource_id=user.id))
-            principal = principal_for(user, membership)
+            principal = await create_admin_in_transaction(session, workspace=workspace,
+                email=email, password=password, display_name=display_name)
         return principal
     except IntegrityError:
         raise DomainError("account_exists", 409) from None

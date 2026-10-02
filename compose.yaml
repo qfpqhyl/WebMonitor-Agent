@@ -77,6 +77,8 @@ services:
       PGUSER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       BOOTSTRAP_RUNTIME: "true"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set a strong ADMIN_PASSWORD in .env}
       MINIO_ROOT_USER: ${S3_ROOT_USER:-webmonitor-admin}
       MINIO_ROOT_PASSWORD: ${S3_ROOT_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
       SECRET_FILE: /run/webmonitor/secrets/signing.key
@@ -276,6 +278,31 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
 
+  # Explicit trusted acceptance controller, never a page-collection worker.
+  # Docker socket access is equivalent to host Docker administrator access.
+  smoke-runner:
+    profiles: [smoke]
+    image: ${WEBMONITOR_DEV_IMAGE:-webmonitor-agent-dev:local}
+    build: {context: ., dockerfile: deploy/Dockerfile}
+    user: "0:0"
+    init: true
+    stdin_open: true
+    tty: true
+    working_dir: ${PWD:-/workspace}
+    network_mode: service:proxy
+    environment:
+      CONTAINER_RUNTIME: "true"
+      PYTHONPATH: ${PWD:-/workspace}/src
+      SMOKE_TOKEN: ${SMOKE_TOKEN:-}
+    volumes:
+      - type: bind
+        source: .
+        target: ${PWD:-/workspace}
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      proxy: {condition: service_healthy}
+    command: [python, scripts/smoke_mvp.py, --base-url, "http://localhost:8080"]
+
 networks:
   control:
     internal: true
@@ -288,8 +315,6 @@ networks:
   edge: {}
 
 volumes:
-  # Historical volume retained, deliberately unused by this disposable deployment.
-  postgres-data:
   db-api:
   db-agent:
   db-scheduler:

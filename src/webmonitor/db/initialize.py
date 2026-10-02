@@ -17,6 +17,7 @@ from webmonitor.db.models.notifications import EmailTemplate
 from webmonitor.db.session import get_engine
 from webmonitor.db.provision import provision_runtime
 from sqlalchemy.ext.asyncio import AsyncSession
+from webmonitor.services.accounts import bootstrap_admin_credentials, create_admin_in_transaction
 
 
 def schema_fingerprint() -> str:
@@ -54,6 +55,8 @@ def initialize_secret() -> None:
 
 
 async def initialize_database() -> None:
+    settings = get_settings()
+    admin_credentials = bootstrap_admin_credentials(settings)
     initialize_secret()
     engine = get_engine()
     async with engine.begin() as connection:
@@ -67,12 +70,19 @@ async def initialize_database() -> None:
                 row = await session.scalar(select(SchemaMetadata).where(SchemaMetadata.key == "application"))
                 if row is None or row.fingerprint != schema_fingerprint():
                     raise RuntimeError("Schema fingerprint mismatch; automatic migrations are disabled")
+                if admin_credentials is not None:
+                    workspace = await session.scalar(select(Workspace).where(Workspace.slug == "local").with_for_update())
+                    if workspace is None:
+                        raise RuntimeError("Local workspace missing; refusing initialization")
+                    await create_admin_in_transaction(session, workspace=workspace,
+                        email=admin_credentials[0], password=admin_credentials[1], allow_existing=True)
                 if get_settings().bootstrap_runtime:
                     await provision_runtime(connection, get_settings())
                 return
         await connection.run_sync(Base.metadata.create_all)
         async with AsyncSession(bind=connection, expire_on_commit=False) as session:
-            session.add(Workspace(name="Local workspace", slug="local"))
+            workspace = Workspace(name="Local workspace", slug="local")
+            session.add(workspace)
             resources = files("webmonitor.notifications.templates")
             for event_type, subject in {
                 "price_changed": "Price changed: {{ monitor.name }}",
@@ -88,6 +98,9 @@ async def initialize_database() -> None:
                     is_default=True))
             session.add(SchemaMetadata(key="application", fingerprint=schema_fingerprint()))
             await session.flush()
+            if admin_credentials is not None:
+                await create_admin_in_transaction(session, workspace=workspace,
+                    email=admin_credentials[0], password=admin_credentials[1], allow_existing=True)
         if get_settings().bootstrap_runtime:
             await provision_runtime(connection, get_settings())
 

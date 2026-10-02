@@ -2,31 +2,35 @@
 
 通过对话创建网页监控：真实页面分析、配置草稿、实际提取与邮件预览，经用户确认后定时采集；保留变化事件、运行记录和受权限保护的证据。
 
-**这是本机开发部署，不是生产部署。** PostgreSQL 和 MinIO 数据使用独立 tmpfs；重启 API/Worker 不清数据，停止、重启或重建数据容器会丢失本轮开发数据。旧 `webmonitor-agent_postgres-data` 命名卷保留，但新部署不使用它。
+**这是本机开发部署，不是生产部署。** PostgreSQL 和 MinIO 数据使用独立 tmpfs；重启 API/Worker 不清数据，停止、重启或重建数据容器会丢失本轮开发数据。新部署不使用旧 `webmonitor-agent_postgres-data` 命名卷。以下命令是使用说明，不代表本轮已经执行或通过验收。
 
 ## 启动
 
 需要 Docker Engine 与支持 `additional_contexts: service:...` 的 Docker Compose。Python、Chromium、Node 22 与前端构建均在镜像中完成；正常启动无需宿主 Node。
 
 1. 没有 `.env` 时才从 `.env.example` 复制；已有文件不要覆盖。
-2. 配置 `POSTGRES_PASSWORD`、模型网关和 SMTP。邀请注册还需要显式设置逗号分隔的 `REGISTRATION_ALLOWED_EMAILS`。
+2. 配置 `POSTGRES_PASSWORD`、模型网关以及 `ADMIN_EMAIL` / `ADMIN_PASSWORD`。`.env.example` 使用 `admin@example.com` 和空管理员密码；实际 `.env` 必须设置自己的强密码（12–128 字符），不要把示例空值当成可用凭据。需要邮件时再配置 SMTP；邀请注册还需要显式设置逗号分隔的 `REGISTRATION_ALLOWED_EMAILS`。
 3. 在仓库根运行：
 
 ```sh
-docker compose up --build --wait
+docker compose up --build --wait --scale mailer=0
 ```
 
 打开 **http://localhost:8080**。只有 Nginx 向宿主发布端口，且绑定 `127.0.0.1`；API、数据库、对象存储和采集代理不直接暴露。
 
 根 **`compose.yaml` 是本项目所有 Docker 服务的唯一基础管理入口**。`compose.dev.yaml` 与 `compose.smoke.yaml` 只叠加开发或验收配置，不依赖手工 `docker run` 启动的辅助服务。
 
-首次创建管理员：
+首次启动时，`init-db` 自动使用 `.env` 的 `ADMIN_EMAIL` / `ADMIN_PASSWORD` 创建默认管理员，无需先运行 `admin-create`。这两个变量只传给初始化进程，不传给 API、Agent、Browser、前端或 Mailer；Compose 要求两者非空。
+
+这是**首次创建配置**，不是密码同步：同邮箱已有有效管理员时，重跑初始化不会重置密码；已有普通成员或禁用账号时初始化会拒绝，不会自动提权或重新启用。修改 `.env` 的密码不会改变已有管理员密码。不会创建演示监控或默认通知组。默认启动禁用 Mailer，不发送真实邮件。
+
+可选：需要额外管理员时，才使用交互命令：
 
 ```sh
 docker compose exec api webmonitor admin-create --email <管理员邮箱>
 ```
 
-命令交互读取并确认 12–128 字符密码。不会产生固定密码、默认管理员、演示监控或默认通知组。
+命令交互读取并确认 12–128 字符密码，不使用固定弱密码。登录默认管理员时使用实际 `.env` 中首次创建所用的邮箱和密码，不要在日志中打印它们。
 
 签发邀请：
 
@@ -44,7 +48,7 @@ docker compose exec api webmonitor invite-create --email <允许名单中的邮�
 - 本地 HTTP 必须显式启用 `DEVELOPMENT_MODE=true`，Compose 已设置。HTTPS 下会话 Cookie 使用 Secure；始终 HttpOnly、SameSite=Lax。
 - 模型使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`，通过 OpenAI-compatible **Chat Completions** 接入。容器访问宿主网关使用 `host.docker.internal`；只有配置的主机为 `127.0.0.1`/`localhost` 时应用才转换主机部分，路径不变。可用 `OPENAI_CONTAINER_BASE_URL` 显式覆盖。
 - SMTP 使用 `SMTP_*` 与 `MAIL_FROM`；SSL 和 STARTTLS 必须二选一，证书校验不关闭。`MAIL_TEST_TO` 只供验收，不会自动变成产品收件人。
-- `init-db` 从开发 secret 卷生成随机、0600 权限的分角色数据库凭据、证据存储凭据和签名密钥。API、Agent、Scheduler、Collector、Mailer 使用不同 PostgreSQL 登录角色。
+- `init-db` 从开发 secret 卷生成随机、0600 权限的分角色数据库凭据、证据存储凭据和签名密钥，使用 Compose 指定的 secret 卷路径。API、Agent、Scheduler、Collector、Mailer 使用不同 PostgreSQL 登录角色。
 - Collector 无权读取用户密码、Session、Invitation、Approval 或 AgentCheckpoint，也不能创建 Monitor/MonitorVersion；通知组与收件人仅有 SELECT 权限。
 - 模型密钥只给 Agent，SMTP 凭据只给 Mailer；Browser 不接收这些密钥或数据库初始化凭据。
 - MinIO root 凭据只给 S3 与初始化进程。可设置独立的 `S3_ROOT_USER`/`S3_ROOT_PASSWORD`；本地未设置 root password 时复用 `POSTGRES_PASSWORD`，运行证据身份仍独立随机生成且仅能访问专用 bucket。
@@ -125,19 +129,21 @@ readiness 实际检查 PostgreSQL、schema 指纹、初始化状态；未初始�
 ```sh
 docker compose up -d --force-recreate postgres s3
 docker compose up --force-recreate --no-deps init-db
-docker compose up -d --wait
+docker compose up -d --wait --scale mailer=0
 ```
 
-不要执行 `down -v` 或删除旧 `postgres-data`。需要长期数据保留时必须另行设计持久部署，不能把当前 tmpfs 当生产存储。
+日常操作不要用 `down -v` 或删除共享数据卷；需要长期数据保留时必须另行设计持久部署，不能把当前 tmpfs 当生产存储。**本次用户已单独授权彻底清理 WebMonitor 的 Docker 容器、镜像、网络、卷（包括旧 `webmonitor-agent_postgres-data`）和本地验收产物，再全新初始化。** 此授权不涉及源码、Git 或其他项目资源，不应推断旧卷仍会保留，也不适用于以后未经确认的数据清理。
 
 MinIO 原指定公共镜像在本环境无法拉取，经用户批准使用 `deploy/minio.Dockerfile` 从[同一官方 Release](https://github.com/minio/minio/releases/tag/RELEASE.2025-04-22T22-12-26Z)构建本地镜像；二进制 SHA-256、架构与来源在 `deploy/minio-artifacts.json`，不是内存/本地文件替代品。
 
 ## 开发与测试
 
+开发、部署和测试统一在 Docker 中运行；宿主只需要 Docker Engine / Compose，不需要安装项目 Python、Node 或虚拟环境。`dev` 镜像提供 Python 3.12、Node 22、Chromium、Docker CLI / Compose 插件和开发锁定依赖；普通开发服务不挂载 Docker socket。
+
 ```sh
 # 可选：源码只读挂载，以及仅宿主 localhost:5433 的数据库端口
 # browser-worker 仍使用构建镜像，不挂宿主源码
-docker compose -f compose.yaml -f compose.dev.yaml up --build --wait
+docker compose -f compose.yaml -f compose.dev.yaml up --build --wait --scale mailer=0
 
 # 交互开发
 docker compose --profile dev run --rm dev
@@ -148,37 +154,35 @@ docker compose --profile dev run --rm dev pytest
 
 项目测试仅发现 `tests/unit` 与 `tests/integration`，不执行 `reference/` 中第三方项目的测试。覆盖百分比零基线、连续新增、数字表示等价、邀请并发、审批改版、过期租约/暂停 fencing、失败保留基线、收件人撤权、SDK 合成 ID、截断工具响应、压缩预算与覆盖证明等边界。
 
-宿主验收工具可用 uv 安装，不修改全局 Python/Node：
+依赖通过 `requirements-dev.txt` / `requirements.txt` 保留哈希校验，项目安装与 `--require-hashes` 依赖事务分开。不要在宿主创建 `.venv` 或使用 `uv sync` / `uv run` 安装、运行本项目。
+
+锁文件维护与构建也通过开发容器运行：
 
 ```sh
-uv sync --locked --python 3.12
-uv run python -m playwright install chromium
+docker compose --profile dev run --rm dev uv lock --python 3.12
+docker compose --profile dev run --rm dev uv export --locked --all-groups --no-emit-project --format requirements-txt --output-file requirements-dev.txt
+docker compose --profile dev run --rm dev uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file requirements.txt
+docker compose --profile dev run --rm dev uv build --wheel
 ```
 
-依赖统一维护：
-
-```sh
-uv lock --python 3.12
-uv export --locked --all-groups --no-emit-project --format requirements-txt --output-file requirements-dev.txt
-uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file requirements.txt
-uv build --wheel
-```
-
-前端使用 Node 22 与唯一 `web/package-lock.json`；`npm run generate:api` 从运行中的 `/api/v1/openapi.json` 生成 `web/src/lib/api/schema.d.ts`。构建/typecheck 不能替代真实业务验收。
+前端使用 Node 22 与唯一 `web/package-lock.json`；在开发容器的 `web/` 目录运行 `npm run generate:api`，从运行中的 `/api/v1/openapi.json` 生成 `web/src/lib/api/schema.d.ts`。构建/typecheck 不能替代真实业务验收。
 
 ## 可重复真实验收
 
 只启用验收 overlay 时允许精确目标 `http://fixture:8000`，其他私网仍拒绝。fixture 不向宿主发布管理端口，React/Vue 资源本地提供，不依赖 CDN。
 
+`smoke-runner` 是显式启用 `smoke` profile 的可信验收工具，复用开发镜像、以 root 运行，并挂载 `/var/run/docker.sock` 以管理本项目 fixture 与应用重启；**它拥有 Docker 管理员权限，只应运行可信代码。** 它不属于普通开发或生产 Worker，普通开发不需要 Docker socket。验收容器与 proxy 共享网络，使用 `http://localhost:8080`；仓库按宿主 `${PWD}` 原路径挂载并作为工作目录，请在仓库根运行。`SMOKE_TOKEN` 通过环境传给 Compose，不要输出它。
+
 ```sh
 export SMOKE_TOKEN="$(openssl rand -hex 32)"
-docker compose -f compose.yaml -f compose.smoke.yaml up --build --wait
+docker compose -f compose.yaml -f compose.smoke.yaml up --build --wait --scale mailer=0
 
 # 默认只实际分析、提取与预览，不确认生产监控、不发生产邮件
-uv run python scripts/smoke_mvp.py --base-url http://localhost:8080
+docker compose -f compose.yaml -f compose.smoke.yaml --profile smoke run --rm smoke-runner python scripts/smoke_mvp.py --base-url http://localhost:8080
 
-# 明确允许完整闭环与真实邮件；收件人只能为配置的 MAIL_TEST_TO
-uv run python scripts/smoke_mvp.py --base-url http://localhost:8080 --send-mail
+# 仅在明确允许发送真实邮件后执行；收件人只能为配置的 MAIL_TEST_TO
+docker compose -f compose.yaml -f compose.smoke.yaml up -d --no-deps mailer
+docker compose -f compose.yaml -f compose.smoke.yaml --profile smoke run --rm smoke-runner python scripts/smoke_mvp.py --base-url http://localhost:8080 --send-mail
 ```
 
 **`--send-mail` 会发送多封真实邮件，涵盖变化、故障和恢复；重新运行还会再次发送。** 请先使用默认的仅预览模式。需要停止发信时运行 `docker compose stop mailer`；已经被 SMTP 接收的邮件无法撤回，可能稍后到达。
